@@ -1,13 +1,35 @@
+# Django Core Imports
+from django.shortcuts import render, get_object_or_404, redirect
+from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
+from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators import gzip
+from django.contrib import messages
+from django.urls import reverse_lazy
+from django.views.generic import CreateView, UpdateView, DeleteView, ListView
+from django.conf import settings
+
+# Model and Form Imports
+from .models import Camera
+from .forms import CameraForm
+
+# Streaming Imports
 import cv2
 import threading
-from django.http import StreamingHttpResponse, JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.views.decorators import gzip
+import time
+import logging
+import subprocess
+import os
+import numpy as np
 
-from .models import *
+# Initialize logger
+logger = logging.getLogger(__name__)
 
-import rtsp_streamer as streamer
-# Add this to your existing views.py
+# Import your custom streamers
+from .rtsp_streamer import DynamicRTSPStreamer
+
+# Global streamer instance
+streamer = DynamicRTSPStreamer()
 
 class MJPEGStreamer:
     def __init__(self):
