@@ -1,0 +1,488 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Movies & Quotes{% endblock %}
+{% block nav_home_active %}active{% endblock %}
+
+{% block extra_head %}
+<style>
+/* Custom Modal Styles */
+.custom-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+}
+
+.custom-modal.show {
+    display: flex;
+}
+
+.modal-content {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: between;
+    align-items: center;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #dee2e6;
+    padding-bottom: 10px;
+}
+
+.modal-title {
+    margin: 0;
+    flex: 1;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #6c757d;
+}
+
+.close-btn:hover {
+    color: #000;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid bg-primary py-5 mb-5 hero-header">
+  <div class="row py-3">
+    <div class="col-lg-7 text-center text-lg-left">
+      <h1 class="display-3 text-white mb-3">Movies & Quotes</h1>
+      <p class="text-white mb-4">
+        Discover great movies 🎬 and inspiring quotes 💭 — add your favorites and share them!
+      </p>
+      <button class="btn btn-dark py-md-2 px-md-4 font-weight-semi-bold mt-2" onclick="openMovieModal()">
+        Add Movie
+      </button>
+      <button class="btn btn-light py-md-2 px-md-4 font-weight-semi-bold mt-2" onclick="openQuoteModal()">
+        Add Quote
+      </button>
+    </div>
+    <div class="col-lg-5 text-center text-lg-end">
+      <img class="img-fluid" src="{% static 'img/header.jpg' %}" alt="Movies">
+    </div>
+  </div>
+</div>
+
+<!-- ===== Movies Section ===== -->
+<div class="container py-5 bg-light rounded shadow-sm mb-5">
+  <div class="text-center mb-5">
+    <h6 class="text-primary text-uppercase font-weight-bold">Our Collection</h6>
+    <h2 class="mb-3">Popular Movies</h2>
+  </div>
+  <div class="row" id="movie-list"></div>
+</div>
+
+<!-- ===== Quotes Section ===== -->
+<div class="container py-5">
+  <div class="text-center mb-5">
+    <h6 class="text-primary text-uppercase font-weight-bold">Inspirations</h6>
+    <h2 class="mb-3">Famous Quotes</h2>
+  </div>
+  <div class="row" id="quote-list"></div>
+</div>
+
+<!-- ===== Custom Add Movie Modal ===== -->
+<!-- ===== Custom Add Movie Modal ===== -->
+<div id="movieModal" class="custom-modal">
+  <div class="modal-content" style="max-width: 500px;">
+    <div class="modal-header border-bottom bg-light rounded-top">
+      <div class="d-flex align-items-center w-100">
+        <i class="fas fa-film text-primary me-2 fs-5"></i>
+        <h5 class="modal-title mb-0 fw-bold text-dark">Add New Movie</h5>
+      </div>
+      <button type="button" class="close-btn bg-transparent border-0 fs-4" onclick="closeMovieModal()" style="width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">&times;</button>
+    </div>
+    <form id="movieForm" enctype="multipart/form-data">
+      <div class="modal-body py-4">
+        <div class="mb-3">
+          <label class="form-label fw-semibold text-dark">🎬 Movie Title</label>
+          <input type="text" name="name" class="form-control form-control-lg border-0 bg-light py-3" placeholder="Enter movie title" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold text-dark">📝 Description</label>
+          <textarea name="desc" class="form-control border-0 bg-light" rows="3" placeholder="Brief description about the movie..."></textarea>
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label fw-semibold text-dark">⭐ Rating</label>
+            <div class="input-group">
+              <input type="number" step="0.1" min="0" max="10" name="rating" class="form-control border-0 bg-light py-3" placeholder="0.0 - 10.0" required>
+              <span class="input-group-text border-0 bg-light text-muted">/10</span>
+            </div>
+            <small class="form-text text-muted">Rate from 0.0 to 10.0</small>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label fw-semibold text-dark">🖼️ Poster Image</label>
+            <input type="file" name="img" class="form-control border-0 bg-light" accept="image/*">
+            <small class="form-text text-muted">Optional: Upload movie poster</small>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer border-top bg-light rounded-bottom py-3">
+        <button type="button" class="btn btn-outline-secondary px-4 py-2 rounded-pill" onclick="closeMovieModal()">
+          <i class="fas fa-times me-2"></i>Cancel
+        </button>
+        <button type="submit" class="btn btn-primary px-4 py-2 rounded-pill shadow-sm">
+          <i class="fas fa-save me-2"></i>Save Movie
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== Custom Add Quote Modal ===== -->
+<div id="quoteModal" class="custom-modal">
+  <div class="modal-content" style="max-width: 500px;">
+    <div class="modal-header border-bottom bg-light rounded-top">
+      <div class="d-flex align-items-center w-100">
+        <i class="fas fa-quote-left text-success me-2 fs-5"></i>
+        <h5 class="modal-title mb-0 fw-bold text-dark">Share Inspiration</h5>
+      </div>
+      <button type="button" class="close-btn bg-transparent border-0 fs-4" onclick="closeQuoteModal()" style="width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">&times;</button>
+    </div>
+    <form id="quoteForm" enctype="multipart/form-data">
+      <div class="modal-body py-4">
+        <div class="mb-3">
+          <label class="form-label fw-semibold text-dark">💭 Your Quote</label>
+          <textarea name="desc" class="form-control border-0 bg-light py-3" rows="4" placeholder="Share an inspiring quote..." required style="resize: none;"></textarea>
+          <small class="form-text text-muted">Share wisdom that inspires you</small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold text-dark">🖼️ Background Image</label>
+          <div class="border-dashed rounded-3 p-4 text-center bg-light" onclick="document.querySelector('input[name=\"img\"]').click()" style="cursor: pointer; border: 2px dashed #dee2e6;">
+            <i class="fas fa-cloud-upload-alt text-muted fs-1 mb-2"></i>
+            <p class="text-muted mb-1">Click to upload background image</p>
+            <small class="text-muted">Optional - adds visual appeal to your quote</small>
+            <input type="file" name="img" class="form-control d-none" accept="image/*">
+          </div>
+          <div id="quoteImagePreview" class="mt-2 text-center" style="display: none;">
+            <img id="previewImg" class="rounded-3" style="max-height: 100px; max-width: 100%;">
+            <button type="button" class="btn btn-sm btn-outline-danger mt-2" onclick="removeQuoteImage()">
+              <i class="fas fa-trash me-1"></i>Remove
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer border-top bg-light rounded-bottom py-3">
+        <button type="button" class="btn btn-outline-secondary px-4 py-2 rounded-pill" onclick="closeQuoteModal()">
+          <i class="fas fa-times me-2"></i>Cancel
+        </button>
+        <button type="submit" class="btn btn-success px-4 py-2 rounded-pill shadow-sm">
+          <i class="fas fa-share me-2"></i>Share Quote
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Simple modal functions
+function openMovieModal() {
+    console.log("Opening movie modal");
+    document.getElementById('movieModal').classList.add('show');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeMovieModal() {
+    console.log("Closing movie modal");
+    document.getElementById('movieModal').classList.remove('show');
+    document.body.style.overflow = 'auto';
+}
+
+function openQuoteModal() {
+    console.log("Opening quote modal");
+    document.getElementById('quoteModal').classList.add('show');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeQuoteModal() {
+    console.log("Closing quote modal");
+    document.getElementById('quoteModal').classList.remove('show');
+    document.body.style.overflow = 'auto';
+}
+
+// Close modal when clicking outside
+document.addEventListener('click', function(event) {
+    if (event.target.classList.contains('custom-modal')) {
+        closeMovieModal();
+        closeQuoteModal();
+    }
+});
+
+function loadMovies() {
+  $.get('/api/movies/', function(data) {
+    console.log("Movies data received:", data);
+    $('#movie-list').empty();
+    if (data.length === 0) {
+      $('#movie-list').html('<div class="col-12 text-center"><p>No movies yet. Add the first one!</p></div>');
+      return;
+    }
+    data.forEach(movie => {
+      // Improved image URL handling with better fallbacks
+      let imgUrl = getImageUrl(movie.img, movie.img_url, 'movie');
+      
+      console.log(`Movie: ${movie.name}, Image: ${movie.img}, Using URL: ${imgUrl}`);
+      
+      $('#movie-list').append(`
+        <div class="col-lg-4 col-md-6 mb-4">
+          <div class="card shadow-sm border-0 h-100 transition-all" style="transition: transform 0.3s ease, box-shadow 0.3s ease;">
+            <div class="position-relative overflow-hidden">
+                <br>
+                <center>
+              <img src="${imgUrl}" class="card-img-top" alt="${movie.name}" style="height: 320px; width: 80%; object-fit: cover;" onerror="this.src='https://via.placeholder.com/400x280/4a5568/ffffff?text=Movie+Poster'">
+                </center>
+              <div class="position-absolute top-0 end-0 m-2">
+                
+              </div>
+            </div>
+            <div class="card-body d-flex flex-column">
+              <h5 class="card-title text-dark fw-bold mb-2">${movie.name}</h5>
+              <p class="card-text text-muted flex-grow-1">${movie.desc || 'No description available.'}</p>
+              <div class="mt-auto pt-2 border-top">
+                <span class="badge bg-primary bg-opacity-90 text-white fs-6 px-2 py-1">
+                  ⭐ ${movie.rating}/10
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+    });
+  }).fail(function(xhr, status, error) {
+    console.error('Error loading movies:', error, xhr.responseText);
+    $('#movie-list').html('<div class="col-12 text-center"><p>Error loading movies. Please try again.</p></div>');
+  });
+}
+
+function loadQuotes() {
+  $.get('/api/quotes/', function(data) {
+    console.log("Quotes data received:", data);
+    $('#quote-list').empty();
+    if (data.length === 0) {
+      $('#quote-list').html('<div class="col-12 text-center"><p>No quotes yet. Add the first one!</p></div>');
+      return;
+    }
+    data.forEach(quote => {
+      // Improved image URL handling with better fallbacks
+      let imgUrl = getImageUrl(quote.img, quote.img_url, 'quote');
+      
+      console.log(`Quote: ${quote.desc.substring(0, 50)}..., Image: ${quote.img}, Using URL: ${imgUrl}`);
+      
+      $('#quote-list').append(`
+        <div class="col-lg-4 col-md-6 mb-4">
+          <div class="card shadow-sm border-0 h-100 transition-all" style="transition: transform 0.3s ease, box-shadow 0.3s ease;">
+            <div class="position-relative overflow-hidden">
+              <img src="${imgUrl}" class="card-img-top" alt="Quote" style="height: 220px; width: 100%; object-fit: cover;" onerror="handleImageError(this, 'quote')">
+              <div class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center">
+                <i class="fas fa-quote-left text-white fs-1 opacity-50"></i>
+              </div>
+            </div>
+            <div class="card-body d-flex flex-column">
+              <p class="card-text fst-italic text-dark text-center fs-5 flex-grow-1">"${quote.desc}"</p>
+              <div class="mt-auto pt-2 border-top text-center">
+                <small class="text-muted">— Inspirational Quote</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+    });
+  }).fail(function(xhr, status, error) {
+    console.error('Error loading quotes:', error, xhr.responseText);
+    $('#quote-list').html('<div class="col-12 text-center"><p>Error loading quotes. Please try again.</p></div>');
+  });
+}
+
+// Unified image URL handler
+function getImageUrl(imgField, imgUrlField, type = 'movie') {
+  // Sample images for different types
+  const sampleImages = {
+    movie: [
+      'https://images.unsplash.com/photo-1489599809505-7c8e1c8bfc15?w=400&h=280&fit=crop',
+      'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400&h=280&fit=crop',
+      'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?w=400&h=280&fit=crop'
+    ],
+    quote: [
+      'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=220&fit=crop',
+      'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=400&h=220&fit=crop',
+      'https://images.unsplash.com/photo-1506260408121-e353d10b87c7?w=400&h=220&fit=crop'
+    ]
+  };
+
+  // Priority 1: Use img_url if provided and valid
+  if (imgUrlField && (imgUrlField.startsWith('http') || imgUrlField.startsWith('/'))) {
+    return imgUrlField;
+  }
+  
+  // Priority 2: Use img field if provided and construct URL
+  if (imgField) {
+    if (imgField.startsWith('http') || imgField.startsWith('/')) {
+      return imgField;
+    } else {
+      return `/media/${imgField}`;
+    }
+  }
+  
+  // Priority 3: Use img_url even if it doesn't start with http or /
+  if (imgUrlField) {
+    return imgUrlField;
+  }
+  
+  // Priority 4: Fallback to random sample image based on type
+  const samples = sampleImages[type] || sampleImages.movie;
+  const randomIndex = Math.floor(Math.random() * samples.length);
+  return samples[randomIndex];
+}
+
+// Better error handling for images
+function handleImageError(imgElement, type = 'movie') {
+  const placeholderImages = {
+    movie: 'https://via.placeholder.com/400x280/4a5568/ffffff?text=Movie+Poster&font=playfair',
+    quote: 'https://via.placeholder.com/400x220/2d3748/ffffff?text=Inspirational+Quote&font=playfair'
+  };
+  
+  // If the image has already been replaced with placeholder, don't do anything
+  if (imgElement.src.includes('placeholder.com')) {
+    return;
+  }
+  
+  // Use appropriate placeholder based on type
+  imgElement.src = placeholderImages[type] || placeholderImages.movie;
+  
+  // Hide the quote icon if it's a quote and image failed to load
+  if (type === 'quote') {
+    const quoteIcon = imgElement.parentElement.querySelector('.fa-quote-left');
+    if (quoteIcon) {
+      quoteIcon.style.display = 'none';
+    }
+  }
+}
+
+// Debug function to check image data
+function debugImageData() {
+  console.log("=== DEBUGGING IMAGE DATA ===");
+  
+  $.get('/api/movies/', function(movies) {
+    console.log("MOVIES RAW DATA:", movies);
+    movies.forEach((movie, index) => {
+      console.log(`Movie ${index + 1}:`, {
+        id: movie.id,
+        name: movie.name,
+        img_field: movie.img,
+        img_url_field: movie.img_url,
+        final_url: getImageUrl(movie.img, movie.img_url, 'movie')
+      });
+    });
+  });
+  
+  $.get('/api/quotes/', function(quotes) {
+    console.log("QUOTES RAW DATA:", quotes);
+    quotes.forEach((quote, index) => {
+      console.log(`Quote ${index + 1}:`, {
+        id: quote.id,
+        desc: quote.desc.substring(0, 30) + '...',
+        img_field: quote.img,
+        img_url_field: quote.img_url,
+        final_url: getImageUrl(quote.img, quote.img_url, 'quote')
+      });
+    });
+  });
+}
+
+$(document).ready(function() {
+  console.log("Document ready - initializing application");
+  
+  loadMovies();
+  loadQuotes();
+  
+  // Run debug to see what data we're getting
+  setTimeout(debugImageData, 1000);
+
+  // Movie Form Submission
+  $('#movieForm').submit(function(e) {
+    e.preventDefault();
+    console.log("Submitting movie form...");
+    
+    const formData = new FormData(this);
+    console.log("Form data:", {
+      name: formData.get('name'),
+      desc: formData.get('desc'),
+      rating: formData.get('rating'),
+      img: formData.get('img') ? formData.get('img').name : 'No file'
+    });
+    
+    $.ajax({
+      url: '/api/movies/add/',
+      type: 'POST',
+      data: formData,
+      processData: false,
+      contentType: false,
+      success: function(response) {
+        console.log("Movie added successfully:", response);
+        closeMovieModal();
+        $('#movieForm')[0].reset();
+        loadMovies();
+        alert('Movie added successfully!');
+      },
+      error: function(xhr, status, error) {
+        console.error('Error adding movie:', error, xhr.responseText);
+        alert('Error adding movie. Please check console for details.');
+      }
+    });
+  });
+
+  // Quote Form Submission
+  $('#quoteForm').submit(function(e) {
+    e.preventDefault();
+    console.log("Submitting quote form...");
+    
+    const formData = new FormData(this);
+    console.log("Form data:", {
+      desc: formData.get('desc'),
+      img: formData.get('img') ? formData.get('img').name : 'No file'
+    });
+    
+    $.ajax({
+      url: '/api/quotes/add/',
+      type: 'POST',
+      data: formData,
+      processData: false,
+      contentType: false,
+      success: function(response) {
+        console.log("Quote added successfully:", response);
+        closeQuoteModal();
+        $('#quoteForm')[0].reset();
+        loadQuotes();
+        alert('Quote added successfully!');
+      },
+      error: function(xhr, status, error) {
+        console.error('Error adding quote:', error, xhr.responseText);
+        alert('Error adding quote. Please check console for details.');
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

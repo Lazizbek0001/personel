@@ -1,0 +1,227 @@
+{% extends 'stream/base.html' %}
+
+{% block title %}Cameras - Camera Streaming{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Camera Streams</h1>
+    <a href="{% url 'camera_add' %}" class="btn btn-primary">Add New Camera</a>
+</div>
+
+<!-- Current Stream Status -->
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0">Stream Status</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <strong>Status:</strong> 
+                <span id="global-status" class="badge {% if current_stream.is_streaming %}bg-success{% else %}bg-secondary{% endif %}">
+                    {% if current_stream.is_streaming %}Streaming {{ current_stream.current_camera }}{% else %}Stopped{% endif %}
+                </span>
+            </div>
+            <div class="col-md-6">
+                <strong>Stream URL:</strong> 
+                <span id="stream-url" class="font-monospace small">
+                    {% if current_stream.stream_url %}{{ current_stream.stream_url }}{% else %}No active stream{% endif %}
+                </span>
+            </div>
+        </div>
+        <div class="mt-2">
+            <button id="stop-btn" class="btn btn-sm btn-danger" {% if not current_stream.is_streaming %}disabled{% endif %}>
+                Stop Stream
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Video Player -->
+<div class="card mb-4">
+    <div class="card-header bg-dark text-white">
+        <h5 class="mb-0">Live Stream</h5>
+    </div>
+    <div class="card-body p-0">
+        <div id="video-container" style="background: #000; min-height: 400px; display: flex; align-items: center; justify-content: center;">
+            <video id="video-player" width="100%" height="480" controls autoplay muted style="display: none;">
+                Your browser doesn't support RTSP. Use VLC or another RTSP client.
+            </video>
+            <div id="no-stream-message" class="text-center text-muted">
+                <i class="fas fa-video-slash fa-3x mb-3"></i>
+                <p>No active stream. Select a camera to start streaming.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Camera Grid -->
+<h2 class="mb-3">Available Cameras</h2>
+{% if cameras %}
+<div class="row">
+    {% for camera in cameras %}
+    <div class="col-md-6 col-lg-4 mb-4">
+        <div class="card camera-card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">{{ camera.name }}</h6>
+                <span class="badge {% if camera.is_active %}bg-success{% else %}bg-secondary{% endif %}">
+                    {{ camera.get_stream_type_display }}
+                </span>
+            </div>
+            <div class="card-body">
+                <p class="card-text">
+                    <small class="text-muted">{{ camera.url }}</small>
+                    {% if camera.description %}
+                    <br><span class="text-muted">{{ camera.description|truncatewords:10 }}</span>
+                    {% endif %}
+                </p>
+                <div class="stream-status">
+                    <small>Created: {{ camera.created_at|date:"M d, Y" }}</small>
+                </div>
+            </div>
+            <div class="card-footer bg-transparent">
+                <div class="btn-group w-100">
+                    <button class="btn btn-success btn-sm btn-action play-btn" data-camera-id="{{ camera.id }}">
+                        Play
+                    </button>
+                    <a href="{% url 'camera_edit' camera.pk %}" class="btn btn-warning btn-sm btn-action">
+                        Edit
+                    </a>
+                    <a href="{% url 'camera_delete' camera.pk %}" class="btn btn-danger btn-sm btn-action">
+                        Delete
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">
+    <h4>No cameras configured</h4>
+    <p>Get started by adding your first camera.</p>
+    <a href="{% url 'camera_add' %}" class="btn btn-primary">Add Camera</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // CSRF token helper
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // Play button handlers
+    document.querySelectorAll('.play-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const cameraId = this.getAttribute('data-camera-id');
+            startStream(cameraId);
+        });
+    });
+
+    // Stop button handler
+    document.getElementById('stop-btn').addEventListener('click', stopStream);
+
+    // Start stream function
+    async function startStream(cameraId) {
+        try {
+            const response = await fetch(`/stream/start/${cameraId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                updateUI(data.camera_name, data.stream_url);
+                showStreamInstructions(data.stream_url, data.camera_name);
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (error) {
+            alert('Error starting stream: ' + error.message);
+        }
+    }
+
+    // Stop stream function
+    async function stopStream() {
+        try {
+            const response = await fetch('/stream/stop/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                updateUI(null, null);
+                document.getElementById('video-player').style.display = 'none';
+                document.getElementById('no-stream-message').style.display = 'block';
+            }
+        } catch (error) {
+            alert('Error stopping stream: ' + error.message);
+        }
+    }
+
+    // Update UI with stream info
+    function updateUI(cameraName, streamUrl) {
+        const statusElement = document.getElementById('global-status');
+        const urlElement = document.getElementById('stream-url');
+        const stopBtn = document.getElementById('stop-btn');
+
+        if (cameraName && streamUrl) {
+            statusElement.textContent = `Streaming ${cameraName}`;
+            statusElement.className = 'badge bg-success';
+            urlElement.textContent = streamUrl;
+            stopBtn.disabled = false;
+        } else {
+            statusElement.textContent = 'Stopped';
+            statusElement.className = 'badge bg-secondary';
+            urlElement.textContent = 'No active stream';
+            stopBtn.disabled = true;
+        }
+    }
+
+    // Show stream instructions
+    function showStreamInstructions(streamUrl, cameraName) {
+        const message = `Stream "${cameraName}" started!\n\nRTSP URL: ${streamUrl}\n\nTo view the stream:\n1. Open VLC Media Player\n2. Go to Media → Open Network Stream\n3. Enter: ${streamUrl}\n4. Click Play`;
+        alert(message);
+    }
+
+    // Poll for stream status
+    async function updateStreamStatus() {
+        try {
+            const response = await fetch('/stream/status/');
+            const data = await response.json();
+            
+            if (data.is_streaming) {
+                updateUI(data.current_camera, data.stream_url);
+            } else {
+                updateUI(null, null);
+            }
+        } catch (error) {
+            console.error('Error updating status:', error);
+        }
+    }
+
+    // Update status every 3 seconds
+    setInterval(updateStreamStatus, 3000);
+</script>
+{% endblock %}
