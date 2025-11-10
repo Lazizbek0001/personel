@@ -66,8 +66,7 @@
                     <a href="{% url 'home' %}" class="nav-item nav-link {% block nav_home_active %}{% endblock %}">Home</a>
                     <a href="#" class="nav-item nav-link {% block nav_about_active %}{% endblock %}">About</a>
                     <a href="{% url 'movies' %}" class="nav-item nav-link {% block nav_movies_active %}{% endblock %}">Movies</a>
-                    <a href="#" class="nav-item nav-link {% block nav_courses_active %}{% endblock %}">Courses</a>
-                    <a href="#" class="nav-item nav-link {% block nav_contact_active %}{% endblock %}">Contact</a>
+                    <a href="{% url 'camera_list' %}" class="nav-item nav-link {% block nav_courses_active %}{% endblock %}">Cameras</a>
                 </div>
                 <a href="#" class="btn btn-primary py-2 px-4 d-none d-lg-block">Join Us</a>
             </div>
