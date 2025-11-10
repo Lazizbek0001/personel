@@ -1,4 +1,6 @@
 from django.urls import path
+from django.conf import settings
+from django.conf.urls.static import static
 from . import views
 
 
@@ -15,5 +17,11 @@ urlpatterns = [
     path('start/<int:camera_id>/', views.start_stream, name='start_stream'),
     path('stop/', views.stop_stream, name='stop_stream'),
     path('status/', views.stream_status, name='stream_status'),
-    path('mjpeg/<int:camera_id>/', views.mjpeg_stream, name='mjpeg_stream'),
+    
+    # HLS streaming endpoints
+    path('media/hls/camera_<int:camera_id>/<str:filename>', views.hls_playlist, name='hls_playlist'),
 ]
+
+# Serve media files in development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

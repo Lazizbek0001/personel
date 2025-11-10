@@ -130,6 +130,10 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 MEDIA_ROOT = BASE_DIR / 'media'
 
 STATIC_ROOT = 'staticfiles/'
+# Media files configuration
+
+# HLS configuration
+HLS_BASE_URL = '/media/hls/'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

@@ -1,181 +1,135 @@
 {% extends 'stream/base.html' %}
 
-{% block title %}Cameras · Live Streaming{% endblock %}
+{% block title %}Cameras - Camera Streaming{% endblock %}
 
 {% block content %}
-<style>
-  /* Subtle layout polish */
-  .page-header {
-    display:flex; align-items:center; justify-content:space-between;
-    gap:12px; margin-bottom: 1.25rem;
-  }
-  .page-header h1 { margin:0; }
-  .card + .card { margin-top: 1rem; }
-  .card-header { display:flex; align-items:center; justify-content:space-between; }
-  .stream-wrap {
-    background:#000; min-height: 480px; position:relative; display:flex;
-    align-items:center; justify-content:center; overflow:hidden;
-  }
-  #video-stream { width:100%; max-width:1280px; display:none; background:#000; }
-  #loading-indicator { position:absolute; inset:0; display:none; align-items:center; justify-content:center; gap:.75rem; flex-direction:column; background:rgba(0,0,0,.25); }
-  #no-stream-message { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; color:#9aa4ad; gap:.5rem; }
-  #error-message { position:absolute; top:10px; left:10px; right:10px; display:none; }
-  .camera-card small.text-muted { word-break: break-all; }
-  .camera-actions .btn { min-width: 80px; }
-  .pill { border-radius:999px; padding:.35rem .7rem; font-weight:600; }
-  .status-dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
-  .dot-ok { background:#28a745; } .dot-stop { background:#6c757d; }
-  .soft { color:#6c757d; }
-  .kbd { background:#343a40; color:#fff; border-radius:4px; padding:2px 6px; font-size:.85em; }
-</style>
-
-<div class="page-header">
-  <h1 class="mb-0">Camera Streams</h1>
-  <div class="d-flex align-items-center gap-2">
-    <a href="{% url 'camera_add' %}" class="btn btn-primary">
-      <i class="fas fa-plus me-1"></i>Add Camera
-    </a>
-  </div>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Camera Streams</h1>
+    <a href="{% url 'camera_add' %}" class="btn btn-primary">Add New Camera</a>
 </div>
 
-<!-- Global Status -->
-<div class="card">
-  <div class="card-header bg-light">
-    <h5 class="mb-0">Stream Status</h5>
-  </div>
-  <div class="card-body">
-    <div class="row g-3 align-items-center">
-      <div class="col-md-4">
-        <div class="d-flex align-items-center">
-          <span class="status-dot {% if current_stream.is_streaming %}dot-ok{% else %}dot-stop{% endif %}"></span>
-          <strong class="me-2">Status:</strong>
-          <span id="global-status" class="badge {% if current_stream.is_streaming %}bg-success{% else %}bg-secondary{% endif %}">
-            {% if current_stream.is_streaming %}Streaming {{ current_stream.current_camera }}{% else %}Stopped{% endif %}
-          </span>
+<!-- Current Stream Status -->
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0">Stream Status</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <strong>Status:</strong> 
+                <span id="global-status" class="badge {% if current_stream.is_streaming %}bg-success{% else %}bg-secondary{% endif %}">
+                    {% if current_stream.is_streaming %}Streaming {{ current_stream.current_camera }}{% else %}Stopped{% endif %}
+                </span>
+            </div>
+            <div class="col-md-6">
+                <strong>Active Camera:</strong> 
+                <span id="active-camera">{% if current_stream.current_camera %}{{ current_stream.current_camera }}{% else %}None{% endif %}</span>
+            </div>
         </div>
-      </div>
-      <div class="col-md-4">
-        <strong>Active Camera:</strong>
-        <span id="active-camera">
-          {% if current_stream.current_camera %}{{ current_stream.current_camera }}{% else %}<span class="soft">None</span>{% endif %}
-        </span>
-      </div>
-      <div class="col-md-4 d-flex justify-content-md-end gap-2">
-        <select id="quick-picker" class="form-select" style="max-width:280px;">
-          <option value="" selected disabled>Quick pick a camera…</option>
-          {% for camera in cameras %}
-            <option value="{{ camera.id }}">{{ camera.name }}</option>
-          {% endfor %}
-        </select>
-        <button id="stop-btn" class="btn btn-outline-danger" {% if not current_stream.is_streaming %}disabled{% endif %}>
-          <i class="fas fa-stop me-1"></i>Stop
-        </button>
-      </div>
+        <div class="mt-2">
+            <button id="stop-btn" class="btn btn-sm btn-danger" {% if not current_stream.is_streaming %}disabled{% endif %}>
+                Stop Stream
+            </button>
+        </div>
     </div>
-  </div>
 </div>
 
-<!-- Main Stream -->
-<div class="card">
-  <div class="card-header bg-dark text-white">
-    <div class="d-flex align-items-center justify-content-between w-100">
-      <div class="d-flex align-items-center gap-2">
-        <i class="fas fa-broadcast-tower"></i>
+<!-- Video Player -->
+<div class="card mb-4">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Live Stream</h5>
-      </div>
-      <span id="streaming-camera-name" class="pill bg-info text-dark">
-        {% if current_stream.current_camera %}{{ current_stream.current_camera }}{% else %}No camera selected{% endif %}
-      </span>
+        <span id="streaming-camera-name" class="badge bg-info">{% if current_stream.current_camera %}{{ current_stream.current_camera }}{% else %}No camera selected{% endif %}</span>
     </div>
-  </div>
-  <div class="card-body p-0">
-    <div id="video-container" class="stream-wrap">
-      <!-- MJPEG Stream Display -->
-      <img id="video-stream" src="" alt="Live stream"/>
-
-      <!-- Loading -->
-      <div id="loading-indicator" class="text-center text-white">
-        <div class="spinner-border" role="status" aria-hidden="true"></div>
-        <div>Starting stream…</div>
-        <div class="soft">Tip: press <span class="kbd">S</span> to stop</div>
-      </div>
-
-      <!-- No Stream -->
-      <div id="no-stream-message" class="text-center">
-        <i class="fas fa-video-slash fa-3x mb-3"></i>
-        <p class="mb-1">No active stream</p>
-        <small class="soft">Select a camera below to start streaming</small>
-      </div>
-
-      <!-- Error -->
-      <div id="error-message" class="alert alert-danger text-center" role="alert">
-        <strong>Stream Error</strong><br>
-        <span id="error-text"></span>
-      </div>
+    <div class="card-body p-0">
+        <div id="video-container" style="background: #000; min-height: 480px; display: flex; align-items: center; justify-content: center; position: relative;">
+            
+            <!-- HLS Video Player -->
+            <video id="video-player" width="100%" height="480" controls autoplay muted style="display: none;">
+                Your browser doesn't support HLS streaming.
+            </video>
+            
+            <!-- Loading Indicator -->
+            <div id="loading-indicator" class="text-center text-white" style="display: none;">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Starting stream...</p>
+            </div>
+            
+            <!-- No Stream Message -->
+            <div id="no-stream-message" class="text-center text-muted">
+                <i class="fas fa-video-slash fa-3x mb-3"></i>
+                <p>No active stream. Select a camera to start streaming.</p>
+            </div>
+            
+            <!-- Error Message -->
+            <div id="error-message" class="alert alert-danger text-center" style="display: none;">
+                <strong>Stream Error</strong><br>
+                <span id="error-text"></span>
+            </div>
+        </div>
     </div>
-  </div>
 </div>
 
 <!-- Camera Grid -->
-<div class="d-flex align-items-center justify-content-between mt-4 mb-2">
-  <h2 class="mb-0">Available Cameras</h2>
-  <small class="soft">Click <b>Play</b> on any camera</small>
-</div>
-
+<h2 class="mb-3">Available Cameras</h2>
 {% if cameras %}
-  <div class="row">
+<div class="row">
     {% for camera in cameras %}
     <div class="col-md-6 col-lg-4 mb-4">
-      <div class="card camera-card h-100 shadow-sm">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <h6 class="mb-0 text-truncate" title="{{ camera.name }}">{{ camera.name }}</h6>
-          <span class="badge {% if camera.is_active %}bg-success{% else %}bg-secondary{% endif %}">
-            {{ camera.get_stream_type_display }}
-          </span>
+        <div class="card camera-card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">{{ camera.name }}</h6>
+                <span class="badge {% if camera.is_active %}bg-success{% else %}bg-secondary{% endif %}">
+                    {{ camera.get_stream_type_display }}
+                </span>
+            </div>
+            <div class="card-body">
+                <p class="card-text">
+                    <small class="text-muted">{{ camera.url }}</small>
+                    {% if camera.description %}
+                    <br><span class="text-muted">{{ camera.description|truncatewords:10 }}</span>
+                    {% endif %}
+                </p>
+                <div class="stream-status">
+                    <small>Created: {{ camera.created_at|date:"M d, Y" }}</small>
+                </div>
+            </div>
+            <div class="card-footer bg-transparent">
+                <div class="btn-group w-100">
+                    <button class="btn btn-success btn-sm btn-action play-btn" 
+                            data-camera-id="{{ camera.id }}"
+                            data-camera-name="{{ camera.name }}">
+                        Play
+                    </button>
+                    <a href="{% url 'camera_edit' camera.pk %}" class="btn btn-warning btn-sm btn-action">
+                        Edit
+                    </a>
+                    <a href="{% url 'camera_delete' camera.pk %}" class="btn btn-danger btn-sm btn-action">
+                        Delete
+                    </a>
+                </div>
+            </div>
         </div>
-        <div class="card-body">
-          <p class="card-text small mb-2">
-            <span class="soft d-block mb-1">URL</span>
-            <small class="text-muted">{{ camera.url }}</small>
-          </p>
-          {% if camera.description %}
-            <p class="small text-muted mb-2">{{ camera.description|truncatewords:16 }}</p>
-          {% endif %}
-          <div class="soft small">Created: {{ camera.created_at|date:"M d, Y" }}</div>
-        </div>
-        <div class="card-footer bg-transparent camera-actions">
-          <div class="btn-group w-100">
-            <button class="btn btn-success btn-sm play-btn"
-                    data-camera-id="{{ camera.id }}"
-                    data-camera-name="{{ camera.name }}">
-              <i class="fas fa-play me-1"></i>Play
-            </button>
-            <a href="{% url 'camera_edit' camera.pk %}" class="btn btn-warning btn-sm">
-              <i class="fas fa-edit me-1"></i>Edit
-            </a>
-            <a href="{% url 'camera_delete' camera.pk %}" class="btn btn-danger btn-sm">
-              <i class="fas fa-trash me-1"></i>Delete
-            </a>
-          </div>
-        </div>
-      </div>
     </div>
     {% endfor %}
-  </div>
+</div>
 {% else %}
-  <div class="alert alert-info">
-    <h5 class="mb-1">No cameras configured</h5>
-    <p class="mb-2">Get started by adding your first camera.</p>
-    <a href="{% url 'camera_add' %}" class="btn btn-primary"><i class="fas fa-plus me-1"></i>Add Camera</a>
-  </div>
+<div class="alert alert-info">
+    <h4>No cameras configured</h4>
+    <p>Get started by adding your first camera.</p>
+    <a href="{% url 'camera_add' %}" class="btn btn-primary">Add Camera</a>
+</div>
 {% endif %}
 {% endblock %}
 
 {% block extra_scripts %}
+<!-- HLS.js library for browser HLS support -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
 <script>
     // Global variables
-    let currentStreamUrl = null;
-    let streamInterval = null;
+    let currentHls = null;
     let isStreamStarting = false;
 
     // CSRF token helper
@@ -231,15 +185,14 @@
             console.log('Start stream response:', data);
 
             if (data.status === 'success') {
-                currentStreamUrl = data.stream_url;
                 updateUI(cameraName, data.stream_url);
                 
-                // Wait longer for RTSP server to fully initialize
-                console.log('Waiting for RTSP server to initialize...');
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                // Wait for HLS to be ready
+                console.log('Waiting for HLS stream to be ready...');
+                await new Promise(resolve => setTimeout(resolve, 4000));
                 
-                // Start MJPEG stream with retry logic
-                startMJPEGStream(cameraId);
+                // Start HLS player
+                startHLSPlayer(data.hls_url, cameraId);
             } else {
                 showError('Failed to start stream: ' + data.message);
                 isStreamStarting = false;
@@ -251,65 +204,98 @@
         }
     }
 
-    function startMJPEGStream(cameraId) {
-        console.log(`Starting MJPEG stream for camera ${cameraId}`);
+    function startHLSPlayer(hlsUrl, cameraId) {
+        console.log(`Starting HLS player for: ${hlsUrl}`);
         
-        // Clear any existing interval
-        if (streamInterval) {
-            clearInterval(streamInterval);
+        const videoPlayer = document.getElementById('video-player');
+        
+        // Clean up previous HLS instance
+        if (currentHls) {
+            currentHls.destroy();
+            currentHls = null;
         }
         
-        const mjpegUrl = `/stream/mjpeg/${cameraId}/`;
-        const videoStream = document.getElementById('video-stream');
-        
-        // Add cache buster and timestamp
-        const timestamp = new Date().getTime();
-        videoStream.src = mjpegUrl + '?t=' + timestamp;
-        videoStream.style.display = 'block';
-        
-        let retryCount = 0;
-        const maxRetries = 8; // Increased retries
-        
-        videoStream.onerror = function() {
-            retryCount++;
-            console.log(`Stream connection attempt ${retryCount}/${maxRetries} failed`);
+        if (Hls.isSupported()) {
+            // Use HLS.js
+            currentHls = new Hls({
+                enableWorker: false, // Disable worker for better performance
+                lowLatencyMode: true,
+                backBufferLength: 90
+            });
             
-            if (retryCount <= maxRetries) {
-                // Exponential backoff
-                const retryDelay = Math.min(1000 * Math.pow(1.5, retryCount), 5000);
-                console.log(`Retrying in ${retryDelay}ms...`);
-                
-                setTimeout(() => {
-                    const newTimestamp = new Date().getTime();
-                    videoStream.src = mjpegUrl + '?t=' + newTimestamp;
-                }, retryDelay);
-            } else {
-                console.error('Max retries exceeded');
-                showError('Failed to connect to camera after multiple attempts. Please try again.');
+            currentHls.loadSource(hlsUrl);
+            currentHls.attachMedia(videoPlayer);
+            
+            currentHls.on(Hls.Events.MANIFEST_PARSED, function() {
+                console.log('HLS manifest parsed, starting playback...');
+                videoPlayer.play().catch(e => {
+                    console.log('Autoplay prevented:', e);
+                });
+                videoPlayer.style.display = 'block';
+                hideLoading();
                 isStreamStarting = false;
-            }
-        };
-        
-        videoStream.onload = function() {
-            console.log('MJPEG stream loaded successfully!');
-            hideLoading();
+            });
+            
+            currentHls.on(Hls.Events.ERROR, function(event, data) {
+                console.error('HLS error:', data);
+                if (data.fatal) {
+                    switch(data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log('Network error, trying to recover...');
+                            currentHls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log('Media error, trying to recover...');
+                            currentHls.recoverMediaError();
+                            break;
+                        default:
+                            console.log('Fatal HLS error, cannot recover');
+                            showError('Stream error occurred');
+                            isStreamStarting = false;
+                            break;
+                    }
+                }
+            });
+            
+        } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native HLS support (Safari)
+            videoPlayer.src = hlsUrl;
+            videoPlayer.addEventListener('loadedmetadata', function() {
+                console.log('Native HLS loaded, starting playback...');
+                videoPlayer.play().catch(e => {
+                    console.log('Autoplay prevented:', e);
+                });
+                videoPlayer.style.display = 'block';
+                hideLoading();
+                isStreamStarting = false;
+            });
+            
+            videoPlayer.addEventListener('error', function() {
+                console.error('Native HLS error');
+                showError('Failed to load stream');
+                isStreamStarting = false;
+            });
+        } else {
+            showError('HLS is not supported in your browser');
             isStreamStarting = false;
-            retryCount = 0; // Reset on success
-        };
-        
-        // Refresh stream every 15 seconds to prevent timeouts
-        streamInterval = setInterval(() => {
-            if (videoStream.src && currentStreamUrl) {
-                const refreshTimestamp = new Date().getTime();
-                videoStream.src = mjpegUrl + '?t=' + refreshTimestamp;
-            }
-        }, 15000);
+        }
     }
 
     // Stop stream function
     async function stopStream() {
         try {
             console.log('Stopping stream...');
+            
+            // Stop HLS player
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+            
+            const videoPlayer = document.getElementById('video-player');
+            videoPlayer.style.display = 'none';
+            videoPlayer.src = '';
+            
             const response = await fetch('/stream/stop/', {
                 method: 'POST',
                 headers: {
@@ -322,28 +308,13 @@
             console.log('Stop stream response:', data);
 
             if (data.status === 'success') {
-                currentStreamUrl = null;
                 updateUI(null, null);
-                stopMJPEGStream();
                 showNoStream();
             }
         } catch (error) {
             console.error('Error stopping stream:', error);
             showError('Error stopping stream: ' + error.message);
         }
-    }
-
-    // Stop MJPEG stream
-    function stopMJPEGStream() {
-        if (streamInterval) {
-            clearInterval(streamInterval);
-            streamInterval = null;
-        }
-        
-        const videoStream = document.getElementById('video-stream');
-        videoStream.style.display = 'none';
-        videoStream.src = '';
-        isStreamStarting = false;
     }
 
     // Update UI with stream info
@@ -373,7 +344,7 @@
         document.getElementById('loading-indicator').style.display = 'block';
         document.getElementById('no-stream-message').style.display = 'none';
         document.getElementById('error-message').style.display = 'none';
-        document.getElementById('video-stream').style.display = 'none';
+        document.getElementById('video-player').style.display = 'none';
     }
 
     function hideLoading() {
@@ -384,7 +355,8 @@
         document.getElementById('no-stream-message').style.display = 'block';
         document.getElementById('loading-indicator').style.display = 'none';
         document.getElementById('error-message').style.display = 'none';
-        document.getElementById('video-stream').style.display = 'none';
+        document.getElementById('video-player').style.display = 'none';
+        isStreamStarting = false;
     }
 
     function showError(message) {
@@ -392,7 +364,7 @@
         document.getElementById('error-message').style.display = 'block';
         document.getElementById('loading-indicator').style.display = 'none';
         document.getElementById('no-stream-message').style.display = 'none';
-        document.getElementById('video-stream').style.display = 'none';
+        document.getElementById('video-player').style.display = 'none';
         isStreamStarting = false;
     }
 
@@ -402,14 +374,12 @@
             const response = await fetch('/stream/status/');
             const data = await response.json();
             
-            if (data.is_streaming && !currentStreamUrl) {
+            if (data.is_streaming && !currentHls) {
                 // Stream is running but UI doesn't know about it
                 updateUI(data.current_camera, data.stream_url);
-            } else if (!data.is_streaming && currentStreamUrl) {
+            } else if (!data.is_streaming && currentHls) {
                 // Stream stopped but UI thinks it's running
-                currentStreamUrl = null;
                 updateUI(null, null);
-                stopMJPEGStream();
                 showNoStream();
             }
         } catch (error) {
