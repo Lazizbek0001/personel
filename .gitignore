@@ -3,3 +3,6 @@ quote.log
 quote.py
 movie.py
 script.sh
+streamer/__pycache__/
+personel/__pycache__/
+backend/__pycache__/
