@@ -22,10 +22,8 @@
                 </span>
             </div>
             <div class="col-md-6">
-                <strong>Stream URL:</strong> 
-                <span id="stream-url" class="font-monospace small">
-                    {% if current_stream.stream_url %}{{ current_stream.stream_url }}{% else %}No active stream{% endif %}
-                </span>
+                <strong>Active Camera:</strong> 
+                <span id="active-camera">{% if current_stream.current_camera %}{{ current_stream.current_camera }}{% else %}None{% endif %}</span>
             </div>
         </div>
         <div class="mt-2">
@@ -38,17 +36,34 @@
 
 <!-- Video Player -->
 <div class="card mb-4">
-    <div class="card-header bg-dark text-white">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Live Stream</h5>
+        <span id="streaming-camera-name" class="badge bg-info">{% if current_stream.current_camera %}{{ current_stream.current_camera }}{% else %}No camera selected{% endif %}</span>
     </div>
     <div class="card-body p-0">
-        <div id="video-container" style="background: #000; min-height: 400px; display: flex; align-items: center; justify-content: center;">
-            <video id="video-player" width="100%" height="480" controls autoplay muted style="display: none;">
-                Your browser doesn't support RTSP. Use VLC or another RTSP client.
-            </video>
+        <div id="video-container" style="background: #000; min-height: 480px; display: flex; align-items: center; justify-content: center; position: relative;">
+            
+            <!-- MJPEG Stream Display -->
+            <img id="video-stream" src="" style="width: 100%; max-width: 1280px; display: none;">
+            
+            <!-- Loading Indicator -->
+            <div id="loading-indicator" class="text-center text-white" style="display: none;">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Starting stream...</p>
+            </div>
+            
+            <!-- No Stream Message -->
             <div id="no-stream-message" class="text-center text-muted">
                 <i class="fas fa-video-slash fa-3x mb-3"></i>
                 <p>No active stream. Select a camera to start streaming.</p>
+            </div>
+            
+            <!-- Error Message -->
+            <div id="error-message" class="alert alert-danger text-center" style="display: none;">
+                <strong>Stream Error</strong><br>
+                <span id="error-text"></span>
             </div>
         </div>
     </div>
@@ -80,7 +95,9 @@
             </div>
             <div class="card-footer bg-transparent">
                 <div class="btn-group w-100">
-                    <button class="btn btn-success btn-sm btn-action play-btn" data-camera-id="{{ camera.id }}">
+                    <button class="btn btn-success btn-sm btn-action play-btn" 
+                            data-camera-id="{{ camera.id }}"
+                            data-camera-name="{{ camera.name }}">
                         Play
                     </button>
                     <a href="{% url 'camera_edit' camera.pk %}" class="btn btn-warning btn-sm btn-action">
@@ -106,6 +123,10 @@
 
 {% block extra_scripts %}
 <script>
+    // Global variables
+    let currentStreamUrl = null;
+    let streamInterval = null;
+
     // CSRF token helper
     function getCookie(name) {
         let cookieValue = null;
@@ -126,7 +147,8 @@
     document.querySelectorAll('.play-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const cameraId = this.getAttribute('data-camera-id');
-            startStream(cameraId);
+            const cameraName = this.getAttribute('data-camera-name');
+            startStream(cameraId, cameraName);
         });
     });
 
@@ -134,7 +156,9 @@
     document.getElementById('stop-btn').addEventListener('click', stopStream);
 
     // Start stream function
-    async function startStream(cameraId) {
+    async function startStream(cameraId, cameraName) {
+        showLoading();
+        
         try {
             const response = await fetch(`/stream/start/${cameraId}/`, {
                 method: 'POST',
@@ -147,14 +171,45 @@
             const data = await response.json();
 
             if (data.status === 'success') {
-                updateUI(data.camera_name, data.stream_url);
-                showStreamInstructions(data.stream_url, data.camera_name);
+                currentStreamUrl = data.stream_url;
+                updateUI(cameraName, data.stream_url);
+                startMJPEGStream(cameraId);
             } else {
-                alert('Error: ' + data.message);
+                showError('Failed to start stream: ' + data.message);
             }
         } catch (error) {
-            alert('Error starting stream: ' + error.message);
+            showError('Error starting stream: ' + error.message);
         }
+    }
+
+    // Start MJPEG stream
+    function startMJPEGStream(cameraId) {
+        // Clear any existing interval
+        if (streamInterval) {
+            clearInterval(streamInterval);
+        }
+        
+        // Create MJPEG stream URL
+        const mjpegUrl = `/stream/mjpeg/${cameraId}/`;
+        const videoStream = document.getElementById('video-stream');
+        
+        // Show the image element
+        videoStream.style.display = 'block';
+        videoStream.src = mjpegUrl + '?t=' + new Date().getTime(); // Cache buster
+        
+        // Handle stream errors
+        videoStream.onerror = function() {
+            showError('Failed to load video stream. The camera might be unavailable.');
+        };
+        
+        videoStream.onload = function() {
+            hideLoading();
+        };
+        
+        // Refresh stream every 5 seconds to prevent freezing
+        streamInterval = setInterval(() => {
+            videoStream.src = mjpegUrl + '?t=' + new Date().getTime();
+        }, 5000);
     }
 
     // Stop stream function
@@ -171,38 +226,75 @@
             const data = await response.json();
 
             if (data.status === 'success') {
+                currentStreamUrl = null;
                 updateUI(null, null);
-                document.getElementById('video-player').style.display = 'none';
-                document.getElementById('no-stream-message').style.display = 'block';
+                stopMJPEGStream();
+                showNoStream();
             }
         } catch (error) {
-            alert('Error stopping stream: ' + error.message);
+            showError('Error stopping stream: ' + error.message);
         }
+    }
+
+    // Stop MJPEG stream
+    function stopMJPEGStream() {
+        if (streamInterval) {
+            clearInterval(streamInterval);
+            streamInterval = null;
+        }
+        
+        const videoStream = document.getElementById('video-stream');
+        videoStream.style.display = 'none';
+        videoStream.src = '';
     }
 
     // Update UI with stream info
     function updateUI(cameraName, streamUrl) {
         const statusElement = document.getElementById('global-status');
-        const urlElement = document.getElementById('stream-url');
+        const activeCameraElement = document.getElementById('active-camera');
+        const cameraNameElement = document.getElementById('streaming-camera-name');
         const stopBtn = document.getElementById('stop-btn');
 
         if (cameraName && streamUrl) {
             statusElement.textContent = `Streaming ${cameraName}`;
             statusElement.className = 'badge bg-success';
-            urlElement.textContent = streamUrl;
+            activeCameraElement.textContent = cameraName;
+            cameraNameElement.textContent = cameraName;
             stopBtn.disabled = false;
         } else {
             statusElement.textContent = 'Stopped';
             statusElement.className = 'badge bg-secondary';
-            urlElement.textContent = 'No active stream';
+            activeCameraElement.textContent = 'None';
+            cameraNameElement.textContent = 'No camera selected';
             stopBtn.disabled = true;
         }
     }
 
-    // Show stream instructions
-    function showStreamInstructions(streamUrl, cameraName) {
-        const message = `Stream "${cameraName}" started!\n\nRTSP URL: ${streamUrl}\n\nTo view the stream:\n1. Open VLC Media Player\n2. Go to Media → Open Network Stream\n3. Enter: ${streamUrl}\n4. Click Play`;
-        alert(message);
+    // UI helper functions
+    function showLoading() {
+        document.getElementById('loading-indicator').style.display = 'block';
+        document.getElementById('no-stream-message').style.display = 'none';
+        document.getElementById('error-message').style.display = 'none';
+        document.getElementById('video-stream').style.display = 'none';
+    }
+
+    function hideLoading() {
+        document.getElementById('loading-indicator').style.display = 'none';
+    }
+
+    function showNoStream() {
+        document.getElementById('no-stream-message').style.display = 'block';
+        document.getElementById('loading-indicator').style.display = 'none';
+        document.getElementById('error-message').style.display = 'none';
+        document.getElementById('video-stream').style.display = 'none';
+    }
+
+    function showError(message) {
+        document.getElementById('error-text').textContent = message;
+        document.getElementById('error-message').style.display = 'block';
+        document.getElementById('loading-indicator').style.display = 'none';
+        document.getElementById('no-stream-message').style.display = 'none';
+        document.getElementById('video-stream').style.display = 'none';
     }
 
     // Poll for stream status
@@ -211,16 +303,25 @@
             const response = await fetch('/stream/status/');
             const data = await response.json();
             
-            if (data.is_streaming) {
+            if (data.is_streaming && !currentStreamUrl) {
+                // Stream is running but UI doesn't know about it
                 updateUI(data.current_camera, data.stream_url);
-            } else {
+                startMJPEGStream(data.current_camera_id); // You'll need to add this to your status response
+            } else if (!data.is_streaming && currentStreamUrl) {
+                // Stream stopped but UI thinks it's running
+                currentStreamUrl = null;
                 updateUI(null, null);
+                stopMJPEGStream();
+                showNoStream();
             }
         } catch (error) {
             console.error('Error updating status:', error);
         }
     }
 
+    // Initialize
+    showNoStream();
+    
     // Update status every 3 seconds
     setInterval(updateStreamStatus, 3000);
 </script>

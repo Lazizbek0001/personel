@@ -1,108 +1,95 @@
-from django.shortcuts import render, get_object_or_404, redirect
-from django.http import JsonResponse, HttpResponse
+import cv2
+import threading
+from django.http import StreamingHttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
-from django.views.decorators.csrf import csrf_exempt
-from django.contrib import messages
-from django.urls import reverse_lazy
-from django.views.generic import CreateView, UpdateView, DeleteView, ListView
-from .models import Camera
-from .forms import CameraForm
-from .rtsp_streamer import DynamicRTSPStreamer
-import json
+from django.views.decorators import gzip
 
-# Global streamer instance
-streamer = DynamicRTSPStreamer()
+from .models import *
 
-class CameraListView(ListView):
-    model = Camera
-    template_name = 'stream/camera_list.html'
-    context_object_name = 'cameras'
+import rtsp_streamer as streamer
+# Add this to your existing views.py
+
+class MJPEGStreamer:
+    def __init__(self):
+        self.cameras = {}
+        self.locks = {}
     
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['current_stream'] = streamer.get_status()
-        return context
-
-class CameraCreateView(CreateView):
-    model = Camera
-    form_class = CameraForm
-    template_name = 'stream/camera_form.html'
-    success_url = reverse_lazy('camera_list')
+    def get_camera_stream(self, camera_id):
+        """Get or create camera stream"""
+        if camera_id not in self.cameras:
+            try:
+                camera = Camera.objects.get(id=camera_id)
+                cap = cv2.VideoCapture(camera.get_stream_url())
+                
+                # Set camera properties
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                cap.set(cv2.CAP_PROP_FPS, 15)
+                
+                self.cameras[camera_id] = cap
+                self.locks[camera_id] = threading.Lock()
+            except Exception as e:
+                return None
+        return self.cameras[camera_id]
     
-    def form_valid(self, form):
-        messages.success(self.request, f'Camera "{form.instance.name}" added successfully!')
-        return super().form_valid(form)
-
-class CameraUpdateView(UpdateView):
-    model = Camera
-    form_class = CameraForm
-    template_name = 'stream/camera_form.html'
-    success_url = reverse_lazy('camera_list')
-    
-    def form_valid(self, form):
-        messages.success(self.request, f'Camera "{form.instance.name}" updated successfully!')
-        return super().form_valid(form)
-
-class CameraDeleteView(DeleteView):
-    model = Camera
-    template_name = 'stream/camera_confirm_delete.html'
-    success_url = reverse_lazy('camera_list')
-    
-    def delete(self, request, *args, **kwargs):
-        camera = self.get_object()
-        # Stop stream if this camera is currently streaming
-        if streamer.current_camera and streamer.current_camera.id == camera.id:
-            streamer.stop_stream()
-        messages.success(request, f'Camera "{camera.name}" deleted successfully!')
-        return super().delete(request, *args, **kwargs)
-
-# API views for streaming
-@require_http_methods(["POST"])
-@csrf_exempt
-def start_stream(request, camera_id):
-    """Start streaming from specific camera"""
-    camera = get_object_or_404(Camera, id=camera_id, is_active=True)
-    
-    try:
-        success = streamer.start_stream(camera)
+    def generate_frames(self, camera_id):
+        """Generate MJPEG frames"""
+        camera_stream = self.get_camera_stream(camera_id)
+        if camera_stream is None:
+            return
         
-        if success:
-            stream_url = streamer.get_current_stream_url()
-            return JsonResponse({
-                'status': 'success',
-                'message': f'Started streaming from {camera.name}',
-                'stream_url': stream_url,
-                'camera_name': camera.name,
-            })
-        else:
-            return JsonResponse({
-                'status': 'error',
-                'message': 'Failed to start stream'
-            }, status=500)
+        while True:
+            with self.locks[camera_id]:
+                success, frame = camera_stream.read()
             
-    except Exception as e:
-        return JsonResponse({
-            'status': 'error',
-            'message': str(e)
-        }, status=500)
+            if not success:
+                break
+            
+            # Encode frame as JPEG
+            ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if not ret:
+                continue
+            
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n\r\n')
 
-@require_http_methods(["POST"])
-@csrf_exempt
-def stop_stream(request):
-    """Stop current stream"""
+# Global MJPEG streamer instance
+mjpeg_streamer = MJPEGStreamer()
+
+@gzip.gzip_page
+@require_http_methods(["GET"])
+def mjpeg_stream(request, camera_id):
+    """MJPEG stream endpoint"""
     try:
-        streamer.stop_stream()
-        return JsonResponse({
-            'status': 'success',
-            'message': 'Stream stopped'
-        })
+        return StreamingHttpResponse(
+            mjpeg_streamer.generate_frames(camera_id),
+            content_type='multipart/x-mixed-replace; boundary=frame'
+        )
     except Exception as e:
-        return JsonResponse({
-            'status': 'error', 
-            'message': str(e)
-        }, status=500)
+        # Return a blank image or error image
+        return StreamingHttpResponse(
+            generate_blank_frame(),
+            content_type='multipart/x-mixed-replace; boundary=frame'
+        )
 
+def generate_blank_frame():
+    """Generate a blank frame when camera is unavailable"""
+    import numpy as np
+    # Create a blank black frame
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    # Add error text
+    cv2.putText(frame, "Camera Unavailable", (50, 240), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    ret, jpeg = cv2.imencode('.jpg', frame)
+    if ret:
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n\r\n')
+
+# Update your stream status to include camera ID
 @require_http_methods(["GET"])
 def stream_status(request):
     """Get current stream status"""
-    return JsonResponse(streamer.get_status())
+    status = streamer.get_status()
+    if status['is_streaming'] and streamer.current_camera:
+        status['current_camera_id'] = streamer.current_camera.id
+    return JsonResponse(status)
