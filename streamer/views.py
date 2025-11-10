@@ -64,7 +64,7 @@ class CameraUpdateView(UpdateView):
 
 class CameraDeleteView(DeleteView):
     model = Camera
-    template_name = 'stream/camera_confirm_delete.html'
+    template_name = 'stream/camera_delete.html'
     success_url = reverse_lazy('camera_list')
     
     def delete(self, request, *args, **kwargs):
