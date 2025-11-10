@@ -101,6 +101,12 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+RTSP_PORT = 8554
+STREAM_WIDTH = 640
+STREAM_HEIGHT = 480
+STREAM_FPS = 25
+STREAM_LOG_FFMPEG = False  # set True to capture ffmpeg stderr in logs
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
