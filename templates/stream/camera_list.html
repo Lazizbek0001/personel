@@ -173,7 +173,13 @@
             if (data.status === 'success') {
                 currentStreamUrl = data.stream_url;
                 updateUI(cameraName, data.stream_url);
-                startMJPEGStream(cameraId);
+                
+                // Wait for RTSP to initialize
+                console.log('RTSP started, waiting for server...');
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                // Start MJPEG with progressive loading
+                startMJPEGStreamProgressive(cameraId);
             } else {
                 showError('Failed to start stream: ' + data.message);
             }
@@ -182,34 +188,33 @@
         }
     }
 
-    // Start MJPEG stream
-    function startMJPEGStream(cameraId) {
-        // Clear any existing interval
-        if (streamInterval) {
-            clearInterval(streamInterval);
-        }
-        
-        // Create MJPEG stream URL
+    function startMJPEGStreamProgressive(cameraId) {
         const mjpegUrl = `/stream/mjpeg/${cameraId}/`;
         const videoStream = document.getElementById('video-stream');
         
-        // Show the image element
         videoStream.style.display = 'block';
-        videoStream.src = mjpegUrl + '?t=' + new Date().getTime(); // Cache buster
+        videoStream.src = mjpegUrl + '?t=' + new Date().getTime();
         
-        // Handle stream errors
+        let retryCount = 0;
+        const maxRetries = 5;
+        
         videoStream.onerror = function() {
-            showError('Failed to load video stream. The camera might be unavailable.');
+            retryCount++;
+            if (retryCount <= maxRetries) {
+                console.log(`Stream connection attempt ${retryCount}/${maxRetries}`);
+                setTimeout(() => {
+                    videoStream.src = mjpegUrl + '?t=' + new Date().getTime();
+                }, 2000 * retryCount);
+            } else {
+                showError('Failed to connect to camera after multiple attempts');
+            }
         };
         
         videoStream.onload = function() {
             hideLoading();
+            console.log('Stream loaded successfully');
+            retryCount = 0;
         };
-        
-        // Refresh stream every 5 seconds to prevent freezing
-        streamInterval = setInterval(() => {
-            videoStream.src = mjpegUrl + '?t=' + new Date().getTime();
-        }, 5000);
     }
 
     // Stop stream function
@@ -304,11 +309,8 @@
             const data = await response.json();
             
             if (data.is_streaming && !currentStreamUrl) {
-                // Stream is running but UI doesn't know about it
                 updateUI(data.current_camera, data.stream_url);
-                startMJPEGStream(data.current_camera_id); // You'll need to add this to your status response
             } else if (!data.is_streaming && currentStreamUrl) {
-                // Stream stopped but UI thinks it's running
                 currentStreamUrl = null;
                 updateUI(null, null);
                 stopMJPEGStream();

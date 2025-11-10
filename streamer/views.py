@@ -13,19 +13,21 @@ from django.conf import settings
 from .models import Camera
 from .forms import CameraForm
 
-# Streaming Imports
-import cv2
+# Python Standard Library Imports
 import threading
 import time
 import logging
 import subprocess
 import os
+
+# Computer Vision Imports
+import cv2
 import numpy as np
 
 # Initialize logger
 logger = logging.getLogger(__name__)
 
-# Import your custom streamers
+# Import your custom streamer
 from .rtsp_streamer import DynamicRTSPStreamer
 
 # Global streamer instance
@@ -80,64 +82,100 @@ class MJPEGStreamer:
     def __init__(self):
         self.cameras = {}
         self.locks = {}
+        self.retry_count = {}
     
     def get_camera_stream(self, camera_id):
-        """Get or create camera stream"""
+        """Get or create camera stream with retry logic"""
         if camera_id not in self.cameras:
-            try:
-                camera = Camera.objects.get(id=camera_id)
-                cap = cv2.VideoCapture(camera.get_stream_url())
+            self.retry_count[camera_id] = 0
+            max_retries = 5
+            retry_delay = 2
+            
+            while self.retry_count[camera_id] < max_retries:
+                try:
+                    camera = Camera.objects.get(id=camera_id)
+                    cap = cv2.VideoCapture(camera.get_stream_url())
+                    
+                    # Set camera properties with longer timeout
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    cap.set(cv2.CAP_PROP_FPS, 15)
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    
+                    # Wait for camera to be ready
+                    time.sleep(1)
+                    
+                    # Test if camera is actually readable
+                    if cap.isOpened():
+                        # Try to read a frame with timeout
+                        for i in range(10):
+                            ret, frame = cap.read()
+                            if ret:
+                                self.cameras[camera_id] = cap
+                                self.locks[camera_id] = threading.Lock()
+                                logger.info(f"Camera {camera_id} connected successfully")
+                                return self.cameras[camera_id]
+                            time.sleep(0.1)
+                    
+                    # If we get here, camera didn't work
+                    cap.release()
+                    
+                except Exception as e:
+                    logger.warning(f"Camera {camera_id} attempt {self.retry_count[camera_id] + 1} failed: {e}")
                 
-                # Set camera properties
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                cap.set(cv2.CAP_PROP_FPS, 15)
-                
-                self.cameras[camera_id] = cap
-                self.locks[camera_id] = threading.Lock()
-            except Exception as e:
-                logger.error(f"Failed to open camera {camera_id}: {e}")
-                return None
+                self.retry_count[camera_id] += 1
+                if self.retry_count[camera_id] < max_retries:
+                    logger.info(f"Retrying camera {camera_id} in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+            
+            logger.error(f"Camera {camera_id} failed after {max_retries} attempts")
+            return None
+        
         return self.cameras[camera_id]
     
     def generate_frames(self, camera_id):
-        """Generate MJPEG frames"""
-        camera_stream = self.get_camera_stream(camera_id)
-        if camera_stream is None:
-            # Yield blank frames if camera is unavailable
-            while True:
-                yield from self.generate_blank_frame("Camera Unavailable")
-                time.sleep(0.1)
+        """Generate MJPEG frames with automatic recovery"""
+        consecutive_failures = 0
+        max_consecutive_failures = 10
         
         while True:
-            with self.locks.get(camera_id, threading.Lock()):
-                success, frame = camera_stream.read()
-            
-            if not success:
-                # If frame reading fails, yield blank frame and try again
-                yield from self.generate_blank_frame("No Signal")
-                time.sleep(0.1)
+            camera_stream = self.get_camera_stream(camera_id)
+            if camera_stream is None:
+                yield from self.generate_blank_frame("Camera Connecting...")
+                time.sleep(2)
                 continue
             
-            # Encode frame as JPEG
             try:
-                ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                if ret:
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n\r\n')
+                with self.locks[camera_id]:
+                    success, frame = camera_stream.read()
+                
+                if success:
+                    consecutive_failures = 0
+                    ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    if ret:
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n\r\n')
+                    else:
+                        yield from self.generate_blank_frame("Encoding Error")
+                        time.sleep(0.1)
                 else:
-                    yield from self.generate_blank_frame("Encoding Error")
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.warning(f"Camera {camera_id} has consecutive failures, restarting...")
+                        self.restart_camera_stream(camera_id)
+                        consecutive_failures = 0
+                    yield from self.generate_blank_frame("No Signal")
+                    time.sleep(0.1)
+                    
             except Exception as e:
-                logger.error(f"Frame encoding error: {e}")
+                logger.error(f"Error reading from camera {camera_id}: {e}")
                 yield from self.generate_blank_frame("Stream Error")
-                time.sleep(0.1)
+                time.sleep(1)
     
     def generate_blank_frame(self, message="No Signal"):
         """Generate a blank frame with message"""
         try:
-            # Create a blank black frame
             frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            # Add text
             cv2.putText(frame, message, (50, 240), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
             ret, jpeg = cv2.imencode('.jpg', frame)
@@ -145,9 +183,19 @@ class MJPEGStreamer:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n\r\n')
         except Exception as e:
-            # Fallback: yield a simple frame boundary
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + b'\r\n\r\n')
+    
+    def restart_camera_stream(self, camera_id):
+        """Restart camera connection"""
+        if camera_id in self.cameras:
+            try:
+                self.cameras[camera_id].release()
+            except:
+                pass
+            if camera_id in self.cameras:
+                del self.cameras[camera_id]
+        return self.get_camera_stream(camera_id)
 
 # Global MJPEG streamer instance
 mjpeg_streamer = MJPEGStreamer()
@@ -204,7 +252,6 @@ def stop_stream(request):
 def stream_status(request):
     """Get current stream status"""
     status = streamer.get_status()
-    # Add camera ID to status for MJPEG streaming
     if status['is_streaming'] and streamer.current_camera:
         status['current_camera_id'] = streamer.current_camera.id
     return JsonResponse(status)
@@ -223,20 +270,7 @@ def mjpeg_stream(request, camera_id):
         return response
     except Exception as e:
         logger.error(f"MJPEG stream error: {e}")
-        # Return blank stream on error
         return StreamingHttpResponse(
             mjpeg_streamer.generate_blank_frame("Stream Error"),
             content_type='multipart/x-mixed-replace; boundary=frame'
         )
-
-def generate_blank_frame():
-    """Generate a blank frame when camera is unavailable"""
-    # Create a blank black frame
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    # Add error text
-    cv2.putText(frame, "Camera Unavailable", (50, 240), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    ret, jpeg = cv2.imencode('.jpg', frame)
-    if ret:
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n\r\n')
